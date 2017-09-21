@@ -3,42 +3,40 @@ import { Middleware } from "@line/bot-sdk/dist/middleware";
 import { DirectLine, Message as DirectLineMessage } from "botframework-directlinejs";
 import * as restify from "restify";
 import * as restifyPlugins from "restify-plugins";
-const XMLHttpRequest = require("xhr2");
+import { HeroCard } from "./HeroCard";
 
+const XMLHttpRequest = require("xhr2");
 global = Object.assign(global, { XMLHttpRequest });
 
 const logger = console;
 const directLine = new DirectLine({
   secret:
-    process.env.DIRECT_LINE_SECRET ||
+    // process.env.DIRECT_LINE_SECRET
     // "8H_E4uG1JPI.cwA.7R0.75PQaEeOKu9rZOKqsZRTx0DX5apb75tIC0szEodaLgc" // Evan's
-    "kMVxrgDSM6w.cwA.Bnw.RPkFc8hVzG6hk_JFJ4ke3U0lmo2krScd4h7IqI2w4XI" // saki's
+    // "kMVxrgDSM6w.cwA.Bnw.RPkFc8hVzG6hk_JFJ4ke3U0lmo2krScd4h7IqI2w4XI" // saki's
+    "OnGtSpm77Zk.cwA.4sA.P8PplL_rpZU1fOOK_QCyd6U9U8G278cG1JWaJ7-8Ob4"
 });
 
 /**
  * Map conversation ID to user ID
  */
-const conversations: {
-  [messageId: string]: string;
-} = {};
+const conversations:Map<string, string> = new Map();
 
 const server = restify.createServer();
 server.use(restifyPlugins.bodyParser({}));
 
-server.listen(process.env.port || process.env.PORT || 9999 || 3978, () => {
+server.listen(process.env.port || process.env.PORT || 9998 || 3978, () => {
   logger.log("%s listening to %s", server.name, server.url);
 });
 
 const lineConfig: Line.ClientConfig & Line.MiddlewareConfig = {
-  channelAccessToken:
-    process.env.LINE_CHANNEL_ACCESS_TOKEN ||
-    "pjGjFSn+tjX+rfWBfNIR3wbwS/KXA1GDHc0Qb3RMXxNVFLAyjVFfcfaIbte2LWFOEYy2wNENtLROxUiPeqGrg2MOwdz1h+DGEFCGUurLSXnDTz8ki9X3/OZ43tz1KJWbYmDo0/uvsqDReZ1DZP9ZcwdB04t89/1O/w1cDnyilFU=",
-  channelSecret: process.env.LINE_CHANNEL_SECRET || "bdfbed31e6f523f7bfbcdf838ff01caf"
+  channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN as string,
+  channelSecret: process.env.LINE_CHANNEL_SECRET as string
 };
 
 const lineClient = new Client(lineConfig);
 
-const endpoint = "/";
+const endpoint = "/line";
 server.post(endpoint, async (req, res) => {
   if (Array.isArray(req.body.events)) {
     for (const event of req.body.events) {
@@ -57,7 +55,7 @@ server.post(endpoint, async (req, res) => {
             messageId => {
               const conversationId = messageId.split("|")[0];
               // conversations[id] = event.replyToken || "";
-              conversations[conversationId] = event.source.userId || "";
+              conversations.set(conversationId, event.source.userId);
               logger.log("Posted activity, assigned ID ", messageId);
             },
             error => logger.error("Error posting activity", error)
@@ -82,13 +80,31 @@ directLine.activity$
   // .filter(activity => activity.type === "message")
   .subscribe((message: DirectLineMessage) => {
     logger.log("received message ", message);
-    const lineMessage: Line.Message = {
-      text: message.text || "",
-      type: "text"
-    };
+
+    logger.log(message.attachments);
+
+    let lineMessage: Line.Message;
+
+    if (!message.attachments) {
+      lineMessage = {
+        text: message.text,
+        type: "text"
+      };
+    } else {
+      let attachment = message.attachments[0];
+      let attachmentType = attachment.contentType;
+
+      switch (attachmentType) {
+        case "application/vnd.microsoft.card.hero":
+          const heroClass = new HeroCard();
+          lineMessage = heroClass.DirectLineToLine(message);
+          break;
+      }
+    }
+
     if (message.conversation && message.conversation.id) {
       lineClient
-        .pushMessage(conversations[message.conversation.id], lineMessage)
+        .pushMessage(conversations.get(message.conversation.id), lineMessage)
         .then(() => {
           logger.log("Replied with", lineMessage);
         })
